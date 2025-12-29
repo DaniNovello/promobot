@@ -1,0 +1,8 @@
+telethon
+tweepy
+google-generativeai
+supabase
+flask
+python-dotenv
+asyncio
+requests
