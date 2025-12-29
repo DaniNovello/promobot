@@ -24,7 +24,6 @@ def expandir_url(url_curta):
     """
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        # timeout curto pois precisamos de velocidade
         response = requests.head(url_curta, allow_redirects=True, timeout=10, headers=headers)
         return response.url
     except Exception as e:
@@ -33,15 +32,17 @@ def expandir_url(url_curta):
 
 def gerar_link_lomadee_api(url_original):
     """
-    Consulta a API v3 da Lomadee para gerar um Deep Link oficial.
-    Doc: GET https://api.lomadee.com/v3/{appToken}/deeplink/_create
+    Consulta a API v3 da Lomadee.
     """
     app_token = os.environ.get("LOMADEE_APP_TOKEN")
     source_id = os.environ.get("LOMADEE_SOURCE_ID")
 
-    if not app_token or not source_id:
-        print("⚠️ Lomadee: App Token ou Source ID não configurados no .env")
+    # --- TRAVA DE SEGURANÇA ---
+    # Se o token não estiver configurado ou for o placeholder, retorna original
+    if not app_token or "cole_seu" in app_token:
+        print("⚠️ Lomadee: Token pendente. Postando link original (sem comissão) para manter engajamento.")
         return url_original
+    # --------------------------
 
     # Endpoint oficial da API v3
     endpoint = f"https://api.lomadee.com/v3/{app_token}/deeplink/_create"
@@ -55,7 +56,6 @@ def gerar_link_lomadee_api(url_original):
         response = requests.get(endpoint, params=params, timeout=10)
         data = response.json()
         
-        # A API retorna uma lista de deeplinks. Pegamos o primeiro.
         if response.status_code == 200 and "deeplinks" in data:
             if len(data["deeplinks"]) > 0:
                 link_gerado = data["deeplinks"][0]["deeplink"]
@@ -69,11 +69,9 @@ def gerar_link_lomadee_api(url_original):
         return url_original
 
 def converter_link(url, plataforma_detectada):
-    # 1. Expandir URL sempre
     url_final = expandir_url(url)
     
     try:
-        # ESTRATÉGIA AMAZON (Injeção Direta - Mais Rápido)
         if plataforma_detectada == "Amazon":
             tag = os.environ.get("AMAZON_TAG")
             if not tag: return url_final
@@ -88,7 +86,6 @@ def converter_link(url, plataforma_detectada):
             new_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
             return new_url
 
-        # ESTRATÉGIA LOMADEE (API Oficial)
         elif plataforma_detectada == "Lomadee":
             return gerar_link_lomadee_api(url_final)
             

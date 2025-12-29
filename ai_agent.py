@@ -8,7 +8,8 @@ genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
 def gerar_tweet(texto_original, preco=None):
     """Usa o Gemini para criar um tweet atrativo."""
-    model = genai.GenerativeModel('gemini-pro')
+    # CORREÇÃO: Atualizado para o modelo mais recente e rápido
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = f"""
     Atue como um especialista em marketing digital e copywriter para o Twitter (X).
