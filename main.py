@@ -36,7 +36,11 @@ api_hash = os.environ.get("TELEGRAM_API_HASH")
 session_string = os.environ.get("TELEGRAM_SESSION")
 channels_str = os.environ.get("CHANNELS_TO_MONITOR", "")
 
+# --- A LINHA QUE FALTAVA ESTÁ AQUI ABAIXO ---
 # Converte string de canais para lista de inteiros (se forem IDs) ou usernames
+channels = [int(x.strip()) if x.strip().lstrip('-').isdigit() else x.strip() for x in channels_str.split(',') if x.strip()]
+
+# Inicializa o Cliente
 if session_string:
     # Modo Produção (Render)
     client = TelegramClient(StringSession(session_string), api_id, api_hash)
