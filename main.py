@@ -3,6 +3,7 @@ import asyncio
 import threading
 from flask import Flask
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
 from dotenv import load_dotenv
 
 # Importando nossos módulos
