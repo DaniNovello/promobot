@@ -50,15 +50,13 @@ if api_id and api_hash:
 else:
     print("❌ ERRO: API_ID ou API_HASH estão faltando!")
 
-# 2. Verifica a Session String (O Grande Suspeito)
+# 2. Verifica a Session String
 if session_string:
     print(f"✅ SESSION_STRING detectada! Comprimento: {len(session_string)} caracteres.")
-    # Verificação básica de formato
     if len(session_string) < 50:
         print("⚠️ AVISO CRÍTICO: A Session String parece muito curta. Verifique se copiou inteira.")
 else:
     print("❌ ERRO CRÍTICO: Variável TELEGRAM_SESSION está vazia ou não existe!")
-    print("   O bot vai tentar logar interativamente (e vai travar no Render).")
 
 # 3. Verifica Canais
 print(f"📡 Canais configurados: {channels_str}")
@@ -71,13 +69,22 @@ except Exception as e:
 
 print("="*40 + "\n")
 
-# --- INICIALIZAÇÃO DO CLIENTE ---
+# --- INICIALIZAÇÃO DO CLIENTE (COM IDENTIDADE FIXA) ---
+# CORREÇÃO: Adicionamos device_model igual ao do gerador para evitar bloqueio
 if session_string:
     try:
-        print("🔌 Criando cliente com StringSession...")
-        client = TelegramClient(StringSession(session_string), api_id, api_hash)
+        print("🔌 Criando cliente com Identidade Fixa (PromoBot Server)...")
+        client = TelegramClient(
+            StringSession(session_string), 
+            api_id, 
+            api_hash,
+            device_model="PromoBot Server",
+            system_version="Linux Cloud",
+            app_version="1.0.0"
+        )
     except Exception as e:
         print(f"❌ FALHA AO CRIAR CLIENTE: {e}")
+        # Fallback básico
         client = TelegramClient('bot_session', api_id, api_hash)
 else:
     print("⚠️ Criando cliente SEM sessão (vai pedir login)...")
@@ -129,9 +136,21 @@ async def handler(event):
 async def main():
     print("🤖 Função main iniciada.")
     try:
-        print("⏳ Tentando conectar ao Telegram (client.start)...")
-        await client.start()
+        # CORREÇÃO ANTI-HANG: Usamos connect() em vez de start()
+        # O start() tenta abrir login interativo se falhar, o que trava o Render.
+        # O connect() falha direto se a chave for ruim, permitindo ver o erro.
+        print("⏳ Tentando conectar ao Telegram (client.connect)...")
+        await client.connect()
         
+        # Verifica se realmente logou
+        if not await client.is_user_authorized():
+            print("\n" + "!"*50)
+            print("❌ ERRO CRÍTICO: SESSÃO NÃO AUTORIZADA")
+            print("   O Telegram rejeitou a conexão. Motivo provável: Troca de IP.")
+            print("   SOLUÇÃO: Gere uma nova chave usando o 'gerar_sessao.py' novo e atualize no Render.")
+            print("!"*50 + "\n")
+            return
+
         # SE CHEGAR AQUI, O LOGIN FUNCIONOU
         print("\n" + "*"*40)
         print("✅ ✅ SUCESSO! O BOT ESTÁ CONECTADO E RODANDO! ✅ ✅")
@@ -144,10 +163,6 @@ async def main():
         print("\n" + "!"*40)
         print(f"❌ ERRO FATAL NA CONEXÃO: {e}")
         print("!"*40 + "\n")
-        # Se der erro de Auth Key, avisamos especificamente
-        if "AuthKey" in str(e) or "revoked" in str(e).lower():
-            print("💡 DICA: Sua Session String parece inválida ou revogada.")
-            print("   Gere uma nova string localmente e atualize no Render.")
 
 if __name__ == '__main__':
     # Inicia Flask
