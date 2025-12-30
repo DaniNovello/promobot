@@ -2,6 +2,7 @@ import os
 import asyncio
 import threading
 import sys
+import logging  # <--- ADICIONADO: Para ver erros de rede
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -15,6 +16,13 @@ import twitter_client
 
 # Força o carregamento do .env
 load_dotenv()
+
+# --- ATIVANDO LOGS DETALHADOS (CRUCIAL PARA O RENDER) ---
+# Isso vai mostrar se o Telegram está recusando a conexão
+logging.basicConfig(
+    format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
+    level=logging.INFO
+)
 
 # --- CONFIGURAÇÃO FLASK (Healthcheck) ---
 app = Flask(__name__)
@@ -70,7 +78,6 @@ except Exception as e:
 print("="*40 + "\n")
 
 # --- INICIALIZAÇÃO DO CLIENTE (COM IDENTIDADE FIXA) ---
-# CORREÇÃO: Adicionamos device_model igual ao do gerador para evitar bloqueio
 if session_string:
     try:
         print("🔌 Criando cliente com Identidade Fixa (PromoBot Server)...")
@@ -136,17 +143,15 @@ async def handler(event):
 async def main():
     print("🤖 Função main iniciada.")
     try:
-        # CORREÇÃO ANTI-HANG: Usamos connect() em vez de start()
-        # O start() tenta abrir login interativo se falhar, o que trava o Render.
-        # O connect() falha direto se a chave for ruim, permitindo ver o erro.
-        print("⏳ Tentando conectar ao Telegram (client.connect)...")
-        await client.connect()
+        print("⏳ Tentando conectar ao Telegram (Timeout de 30s)...")
+        # ADICIONADO: Timeout para não travar eternamente se o IP estiver bloqueado
+        await asyncio.wait_for(client.connect(), timeout=30)
         
         # Verifica se realmente logou
         if not await client.is_user_authorized():
             print("\n" + "!"*50)
             print("❌ ERRO CRÍTICO: SESSÃO NÃO AUTORIZADA")
-            print("   O Telegram rejeitou a conexão. Motivo provável: Troca de IP.")
+            print("   O Telegram rejeitou a conexão. Motivo provável: Troca de IP ou Sessão Revogada.")
             print("   SOLUÇÃO: Gere uma nova chave usando o 'gerar_sessao.py' novo e atualize no Render.")
             print("!"*50 + "\n")
             return
@@ -158,6 +163,10 @@ async def main():
         
         print("👀 Monitorando mensagens...")
         await client.run_until_disconnected()
+
+    except asyncio.TimeoutError:
+        print("\n❌ ERRO DE CONEXÃO: O Render não conseguiu alcançar o Telegram em 30s.")
+        print("   Isso indica BLOQUEIO DE IP. Tente reiniciar o serviço no Render para pegar outro IP.")
         
     except Exception as e:
         print("\n" + "!"*40)
