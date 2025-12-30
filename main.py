@@ -2,7 +2,7 @@ import os
 import asyncio
 import threading
 import sys
-import logging  # <--- ADICIONADO: Para ver erros de rede
+import logging
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -17,12 +17,15 @@ import twitter_client
 # Força o carregamento do .env
 load_dotenv()
 
-# --- ATIVANDO LOGS DETALHADOS (CRUCIAL PARA O RENDER) ---
-# Isso vai mostrar se o Telegram está recusando a conexão
+# --- CONFIGURAÇÃO DE LOGS (CORRIGIDA PARA RENDER) ---
+# 'force=True' e 'stream=sys.stdout' garantem que o log apareça no painel
 logging.basicConfig(
-    format='[%(levelname) 5s/%(asctime)s] %(name)s: %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,
+    force=True
 )
+logger = logging.getLogger("MainBot")
 
 # --- CONFIGURAÇÃO FLASK (Healthcheck) ---
 app = Flask(__name__)
@@ -36,51 +39,28 @@ def health():
     return "OK", 200
 
 def run_flask():
-    # Pega a porta do ambiente (obrigatório para Render) ou usa 5000
     port = int(os.environ.get("PORT", 5000))
-    print(f"🌍 Iniciando servidor Flask na porta {port}...")
+    logger.info(f"🌍 Iniciando servidor Flask na porta {port}...")
     app.run(host='0.0.0.0', port=port, use_reloader=False)
 
-# --- INÍCIO DO DIAGNÓSTICO ---
-print("\n" + "="*40)
-print("🔎 INICIANDO DIAGNÓSTICO DE AMBIENTE")
-print("="*40)
-
+# --- CONFIGURAÇÕES ---
 api_id = os.environ.get("TELEGRAM_API_ID")
 api_hash = os.environ.get("TELEGRAM_API_HASH")
 session_string = os.environ.get("TELEGRAM_SESSION")
 channels_str = os.environ.get("CHANNELS_TO_MONITOR", "")
 
-# 1. Verifica API ID e HASH
-if api_id and api_hash:
-    print(f"✅ API_ID detectado: {api_id}")
-    print("✅ API_HASH detectado: [OK]")
-else:
-    print("❌ ERRO: API_ID ou API_HASH estão faltando!")
-
-# 2. Verifica a Session String
-if session_string:
-    print(f"✅ SESSION_STRING detectada! Comprimento: {len(session_string)} caracteres.")
-    if len(session_string) < 50:
-        print("⚠️ AVISO CRÍTICO: A Session String parece muito curta. Verifique se copiou inteira.")
-else:
-    print("❌ ERRO CRÍTICO: Variável TELEGRAM_SESSION está vazia ou não existe!")
-
-# 3. Verifica Canais
-print(f"📡 Canais configurados: {channels_str}")
+# Tratamento da lista de canais
 try:
     channels = [int(x.strip()) if x.strip().lstrip('-').isdigit() else x.strip() for x in channels_str.split(',') if x.strip()]
-    print(f"✅ Lista de canais processada: {channels}")
+    logger.info(f"📡 Canais configurados: {channels}")
 except Exception as e:
-    print(f"❌ Erro ao processar lista de canais: {e}")
+    logger.error(f"❌ Erro ao processar lista de canais: {e}")
     channels = []
-
-print("="*40 + "\n")
 
 # --- INICIALIZAÇÃO DO CLIENTE (COM IDENTIDADE FIXA) ---
 if session_string:
     try:
-        print("🔌 Criando cliente com Identidade Fixa (PromoBot Server)...")
+        logger.info("🔌 Criando cliente com Identidade Fixa (PromoBot Server)...")
         client = TelegramClient(
             StringSession(session_string), 
             api_id, 
@@ -90,37 +70,36 @@ if session_string:
             app_version="1.0.0"
         )
     except Exception as e:
-        print(f"❌ FALHA AO CRIAR CLIENTE: {e}")
-        # Fallback básico
+        logger.error(f"❌ FALHA AO CRIAR CLIENTE: {e}")
         client = TelegramClient('bot_session', api_id, api_hash)
 else:
-    print("⚠️ Criando cliente SEM sessão (vai pedir login)...")
+    logger.warning("⚠️ Criando cliente SEM sessão (vai pedir login)...")
     client = TelegramClient('bot_session', api_id, api_hash)
 
 @client.on(events.NewMessage(chats=channels))
 async def handler(event):
+    logger.info(f"📩 Nova mensagem recebida do canal: {event.chat_id}")
     try:
-        print(f"\n📩 Nova mensagem recebida do canal: {event.chat_id}")
         texto_original = event.message.message
 
         # 1. Extrair Link
         url_original = affiliate.extrair_link(texto_original)
         if not url_original:
-            print("   ↳ Ignorado: Nenhum link encontrado.")
+            logger.info("   ↳ Ignorado: Nenhum link encontrado.")
             return
 
         # 2. Identificar Plataforma
         plataforma = affiliate.detectar_plataforma(url_original)
         if not plataforma:
-            print(f"   ↳ Ignorado: Plataforma não suportada ({url_original})")
+            logger.info(f"   ↳ Ignorado: Plataforma não suportada ({url_original})")
             return
 
         # 3. Verificar Duplicidade
         if database.verificar_duplicidade(url_original):
-            print("   ↳ Ignorado: Oferta duplicada.")
+            logger.info("   ↳ Ignorado: Oferta duplicada.")
             return
 
-        print(f"⚙️ Processando oferta da {plataforma}...")
+        logger.info(f"⚙️ Processando oferta da {plataforma}...")
 
         # 4. Converter Link
         link_afiliado = affiliate.converter_link(url_original, plataforma)
@@ -129,49 +108,58 @@ async def handler(event):
         copy_twitter = ai_agent.gerar_tweet(texto_original)
 
         # 6. Postar
+        logger.info(f"🐦 Tentando postar no Twitter: {link_afiliado}")
         sucesso = twitter_client.postar_no_x(copy_twitter, link_afiliado)
 
         # 7. Salvar
         if sucesso:
+            logger.info("✅ Sucesso! Salvando no banco...")
             database.salvar_oferta(url_original, link_afiliado, plataforma, copy_twitter)
+        else:
+            logger.error("❌ Falha na postagem do Twitter (não salvo no banco).")
             
     except Exception as e:
-        print(f"❌ ERRO NO HANDLER: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"❌ ERRO NO HANDLER: {e}", exc_info=True)
 
 async def main():
-    print("🤖 Função main iniciada.")
+    logger.info("🤖 Função main iniciada.")
+
+    # --- NOVIDADE: TESTE DE CREDENCIAIS ---
+    logger.info("🔑 Testando credenciais do Twitter antes de conectar...")
+    if not twitter_client.testar_credenciais():
+        logger.critical("⚠️ AS CREDENCIAIS DO TWITTER ESTÃO INVÁLIDAS OU SEM PERMISSÃO!")
+        # Não damos return para você ver o log completo, mas o bot não vai postar.
+    else:
+        logger.info("✅ Credenciais do Twitter VÁLIDAS!")
+    # --------------------------------------
+
     try:
-        print("⏳ Tentando conectar ao Telegram (Timeout de 30s)...")
-        # ADICIONADO: Timeout para não travar eternamente se o IP estiver bloqueado
+        logger.info("⏳ Tentando conectar ao Telegram (Timeout de 30s)...")
         await asyncio.wait_for(client.connect(), timeout=30)
         
         # Verifica se realmente logou
         if not await client.is_user_authorized():
-            print("\n" + "!"*50)
-            print("❌ ERRO CRÍTICO: SESSÃO NÃO AUTORIZADA")
-            print("   O Telegram rejeitou a conexão. Motivo provável: Troca de IP ou Sessão Revogada.")
-            print("   SOLUÇÃO: Gere uma nova chave usando o 'gerar_sessao.py' novo e atualize no Render.")
-            print("!"*50 + "\n")
+            logger.critical("\n" + "!"*50)
+            logger.critical("❌ ERRO CRÍTICO: SESSÃO NÃO AUTORIZADA")
+            logger.critical("   O Telegram rejeitou a conexão. Motivo provável: Troca de IP ou Sessão Revogada.")
+            logger.critical("   SOLUÇÃO: Gere uma nova chave usando o 'gerar_sessao.py' novo e atualize no Render.")
+            logger.critical("!"*50 + "\n")
             return
 
         # SE CHEGAR AQUI, O LOGIN FUNCIONOU
-        print("\n" + "*"*40)
-        print("✅ ✅ SUCESSO! O BOT ESTÁ CONECTADO E RODANDO! ✅ ✅")
-        print("*"*40 + "\n")
+        logger.info("\n" + "*"*40)
+        logger.info("✅ ✅ SUCESSO! O BOT ESTÁ CONECTADO E RODANDO! ✅ ✅")
+        logger.info("*"*40 + "\n")
         
-        print("👀 Monitorando mensagens...")
+        logger.info("👀 Monitorando mensagens...")
         await client.run_until_disconnected()
 
     except asyncio.TimeoutError:
-        print("\n❌ ERRO DE CONEXÃO: O Render não conseguiu alcançar o Telegram em 30s.")
-        print("   Isso indica BLOQUEIO DE IP. Tente reiniciar o serviço no Render para pegar outro IP.")
+        logger.error("\n❌ ERRO DE CONEXÃO: O Render não conseguiu alcançar o Telegram em 30s.")
+        logger.error("   Isso indica BLOQUEIO DE IP. Tente reiniciar o serviço no Render para pegar outro IP.")
         
     except Exception as e:
-        print("\n" + "!"*40)
-        print(f"❌ ERRO FATAL NA CONEXÃO: {e}")
-        print("!"*40 + "\n")
+        logger.critical(f"❌ ERRO FATAL NA CONEXÃO: {e}", exc_info=True)
 
 if __name__ == '__main__':
     # Inicia Flask
@@ -183,6 +171,6 @@ if __name__ == '__main__':
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Bot interrompido pelo usuário.")
+        logger.info("Bot interrompido pelo usuário.")
     except Exception as e:
-        print(f"❌ Erro não tratado: {e}")
+        logger.critical(f"❌ Erro não tratado: {e}")
